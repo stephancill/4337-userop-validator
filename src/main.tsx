@@ -1,20 +1,21 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Buffer } from 'buffer'
-import { NuqsAdapter } from 'nuqs/adapters/react'
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import { WagmiProvider } from 'wagmi'
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Buffer } from "buffer";
+import { NuqsAdapter } from "nuqs/adapters/react";
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { WagmiProvider } from "wagmi";
 
-import App from './App.tsx'
-import { config } from './wagmi.ts'
+import App from "./App.tsx";
+import { config } from "./wagmi.ts";
 
-import './index.css'
+import "./index.css";
 
-globalThis.Buffer = Buffer
+// Polyfill Buffer for browser
+(globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer;
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient();
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
+ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <NuqsAdapter>
       <WagmiProvider config={config}>
@@ -23,5 +24,5 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </QueryClientProvider>
       </WagmiProvider>
     </NuqsAdapter>
-  </React.StrictMode>,
-)
+  </React.StrictMode>
+);
