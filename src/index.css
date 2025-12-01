@@ -28,10 +28,35 @@ body {
   margin: 0 auto;
 }
 
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
 h1 {
   font-size: 20px;
   font-weight: 500;
-  margin: 0 0 24px;
+  margin: 0;
+  color: var(--text);
+}
+
+.header-links {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.link {
+  color: var(--text-muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.link:hover {
   color: var(--text);
 }
 

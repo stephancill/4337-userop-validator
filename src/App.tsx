@@ -495,7 +495,27 @@ function App() {
 
   return (
     <div className="container">
-      <h1>UserOp Hash Verifier</h1>
+      <header className="header">
+        <h1>UserOp Hash Verifier</h1>
+        <div className="header-links">
+          <a
+            href="https://eips.ethereum.org/EIPS/eip-4337"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="link"
+          >
+            ERC-4337
+          </a>
+          <a
+            href="https://github.com/stephancill/4337-userop-validator"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="link"
+          >
+            GitHub
+          </a>
+        </div>
+      </header>
 
       <div className="section">
         <label>
