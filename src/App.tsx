@@ -72,13 +72,15 @@ function formatAbiType(param: AbiParameter): string {
 
 interface DecodedCallWithTypes {
   functionName: string;
-  args?: readonly unknown[];
+  args?: readonly unknown[] | unknown[];
   inputs?: readonly AbiParameter[];
 }
 
 interface ArgWithDecodedCall {
   target?: string;
   to?: string;
+  _raw?: string;
+  _decodedAs?: "calldata";
   decodedCall?: DecodedCallWithTypes;
   [key: string]: unknown;
 }
@@ -118,10 +120,15 @@ function ArgRenderer({ value, type }: ArgRendererProps) {
   if (typeof value === "object") {
     const objValue = value as ArgWithDecodedCall;
     if (objValue.decodedCall) {
+      // Check if this is decoded from a bytes argument (execute-style)
+      const isDecodedCalldata = objValue._decodedAs === "calldata";
+
       return (
         <div className="decoded-call">
           <div className="decoded-call-header">
-            <span className="muted">Action: </span>
+            {isDecodedCalldata && (
+              <span className="decoded-badge">decoded</span>
+            )}
             <span className="fn-name">{objValue.decodedCall.functionName}</span>
           </div>
           <div className="decoded-call-args">
@@ -140,9 +147,11 @@ function ArgRenderer({ value, type }: ArgRendererProps) {
               );
             })}
           </div>
-          <div className="decoded-call-target">
-            Target: {objValue.target || objValue.to}
-          </div>
+          {(objValue.target || objValue.to) && (
+            <div className="decoded-call-target">
+              Target: {objValue.target || objValue.to}
+            </div>
+          )}
         </div>
       );
     }
@@ -346,15 +355,56 @@ function App() {
         );
         const inputs = abiFunction?.inputs;
 
+        // Helper to decode calldata given a target address
+        const tryDecodeCalldata = async (
+          target: string,
+          data: Hex
+        ): Promise<DecodedCallWithTypes | null> => {
+          if (!data || data === "0x") return null;
+          try {
+            const r = await whatsabi.autoload(target, {
+              provider: client,
+              ...whatsabi.loaders.defaultsWithEnv({
+                ETHERSCAN_API_KEY: import.meta.env.VITE_ETHERSCAN_API_KEY,
+                CHAIN_ID: chainId,
+              }),
+              followProxies: true,
+            });
+            if (r.abi) {
+              const decodedInner = decodeFunctionData({
+                abi: r.abi as Abi,
+                data,
+              });
+              const innerAbiFunction = (r.abi as Abi).find(
+                (item): item is AbiFunction =>
+                  item.type === "function" &&
+                  item.name === decodedInner.functionName
+              );
+              return {
+                ...decodedInner,
+                inputs: innerAbiFunction?.inputs,
+              };
+            }
+          } catch (e) {
+            console.log("Decode failed for", target, e);
+          }
+          return null;
+        };
+
         // Recursively enrich args with decoded inner calls
         const enrichArgs = async (
-          args: readonly unknown[]
+          args: readonly unknown[],
+          argInputs?: readonly AbiParameter[]
         ): Promise<unknown[]> => {
           return Promise.all(
-            args.map(async (arg) => {
+            args.map(async (arg, index) => {
+              const argInput = argInputs?.[index];
+
               if (Array.isArray(arg)) {
                 return enrichArgs(arg);
               }
+
+              // Handle object args with target/data structure (batch calls)
               if (arg && typeof arg === "object") {
                 const objArg = arg as Record<string, unknown>;
                 const target = (objArg.target || objArg.to) as
@@ -365,41 +415,68 @@ function App() {
                   | undefined;
 
                 if (target && data && isHex(data) && data !== "0x") {
-                  try {
-                    const r = await whatsabi.autoload(target, {
-                      provider: client,
-                    });
-                    if (r.abi) {
-                      const decodedInner = decodeFunctionData({
-                        abi: r.abi as Abi,
-                        data,
-                      });
-                      // Find inner function inputs
-                      const innerAbiFunction = (r.abi as Abi).find(
-                        (item): item is AbiFunction =>
-                          item.type === "function" &&
-                          item.name === decodedInner.functionName
+                  const decodedCall = await tryDecodeCalldata(target, data);
+                  if (decodedCall) {
+                    // Recursively decode nested calls
+                    if (decodedCall.args) {
+                      decodedCall.args = await enrichArgs(
+                        decodedCall.args,
+                        decodedCall.inputs
                       );
-                      return {
-                        ...objArg,
-                        decodedCall: {
-                          ...decodedInner,
-                          inputs: innerAbiFunction?.inputs,
-                        },
-                      };
                     }
-                  } catch (e) {
-                    console.log("Inner decode failed", e);
+                    return { ...objArg, decodedCall };
                   }
                 }
               }
+
+              // Handle bytes arg that might be calldata (for execute-style calls)
+              // Look for pattern: previous arg is address, this arg is bytes
+              if (
+                argInput?.type === "bytes" &&
+                typeof arg === "string" &&
+                isHex(arg) &&
+                arg !== "0x" &&
+                index > 0
+              ) {
+                // Find the target address from previous args
+                // Common patterns:
+                // execute(address to, uint256 value, bytes data)
+                // execute(address to, bytes data)
+                const targetIndex = argInputs?.findIndex(
+                  (inp) => inp.type === "address"
+                );
+                if (targetIndex !== undefined && targetIndex >= 0) {
+                  const targetArg = args[targetIndex];
+                  if (typeof targetArg === "string" && isHex(targetArg)) {
+                    const decodedCall = await tryDecodeCalldata(
+                      targetArg as Address,
+                      arg as Hex
+                    );
+                    if (decodedCall) {
+                      // Recursively decode nested calls
+                      if (decodedCall.args) {
+                        decodedCall.args = await enrichArgs(
+                          decodedCall.args,
+                          decodedCall.inputs
+                        );
+                      }
+                      return {
+                        _raw: arg,
+                        _decodedAs: "calldata",
+                        decodedCall,
+                      };
+                    }
+                  }
+                }
+              }
+
               return arg;
             })
           );
         };
 
         if (decoded.args) {
-          const args = await enrichArgs(decoded.args);
+          const args = await enrichArgs(decoded.args, inputs);
           return { ...decoded, args, inputs };
         }
 
